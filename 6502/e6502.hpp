@@ -1,6 +1,7 @@
 #pragma once
 #include <cstdint>
 #include <bitset>
+#include <vector>
 
 namespace EMU6502 {
 	// For accessing the flags in the PS register
@@ -11,11 +12,6 @@ namespace EMU6502 {
 	const uint8_t FlagB = 4;
 	const uint8_t FlagV = 6;
 	const uint8_t FlagN = 7;
-
-	enum class Result : bool {
-		Failure = 0,
-		Success = 1
-	};
 
 	enum class Opcode : uint8_t {
 		// Immediate
@@ -40,31 +36,51 @@ namespace EMU6502 {
 		uint8_t  SP, A, X, Y;
 		std::bitset<8> PS;
 
-		// Memory
-		uint8_t Mem[65536];
+		// Memory (vector seems easier than dealing with a heap array)
+		std::vector<uint8_t> Mem;
 	
 		// Methods
-		CpuData() : PC(0), SP(0), A(0), X(0), Y(0) {
-			for(uint8_t c : Mem)
-				c = 0;
+		CpuData() : PC(0), SP(0), A(0), X(0), Y(0), Mem(1024*64, 0) {
 			PS.reset();
-			PS[5] = true;
 		}
 
 		bool AdvanceClock();
 
-	public:
-		inline uint8_t* AddrAcc();
-		inline uint8_t  AddrImm(uint8_t& Value);
-		inline uint8_t* AddrZpg(uint8_t& Value);
-		inline uint8_t* AddrZpX(uint8_t& Value);
-		inline uint8_t* AddrZpY(uint8_t& Value);
-		inline uint8_t* AddrRel(uint8_t& Value);
-		inline uint8_t* AddrAbs(uint8_t& Low, uint8_t& High);
-		inline uint8_t* AddrAbX(uint8_t& Low, uint8_t& High);
-		inline uint8_t* AddrAbY(uint8_t& Low, uint8_t& High);
-		inline uint8_t* AddrInd(uint8_t& Low, uint8_t& High);
-		inline uint8_t* AddrInX(uint8_t& Low, uint8_t& High);
-		inline uint8_t* AddrInY(uint8_t& Low, uint8_t& High);
+		inline uint8_t* AddrAcc() {
+			return &A;	
+		}
+		inline uint8_t AddrImm(uint8_t& Value) {
+			return Value;	
+		}
+		inline uint8_t* AddrZpg(uint8_t& Value) {
+			return &Mem[Value];
+		}
+		inline uint8_t* AddrZpX(uint8_t& Value) {
+			return &Mem[(uint8_t)Value + X];	
+		}
+		inline uint8_t* AddrZpY(uint8_t& Value) {
+			return &Mem[(uint8_t)Value + Y];	
+		}
+		inline uint8_t* AddrRel(uint8_t& Value ) {
+			return &Mem[PC + *(int8_t*)&Value];	
+		}
+		inline uint8_t* AddrAbs(uint8_t& Low, uint8_t& High) {
+			return &Mem[(uint16_t)(High << 8) + Low];	
+		}
+		inline uint8_t* AddrAbX(uint8_t& Low, uint8_t& High) {
+			return &Mem[(uint16_t)(High << 8) + Low + X];	
+		}
+		inline uint8_t* AddrAbY(uint8_t& Low, uint8_t& High) {
+			return &Mem[(uint16_t)(High << 8) + Low + Y];	
+		}
+		inline uint8_t* AddrInd(uint8_t& Low, uint8_t& High) {
+			return &Mem[*AddrAbs(Low, High)];		
+		}
+		inline uint8_t* AddrInX(uint8_t& Low, uint8_t& High) {
+				return &Mem[*AddrAbs(Low, High) + X];		
+		}
+		inline uint8_t* AddrInY(uint8_t& Low, uint8_t& High) {
+				return &Mem[*AddrAbs(Low, High) + Y];
+		}
 	};
 }
