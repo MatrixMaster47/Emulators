@@ -1,2 +1,2 @@
-# Emulators
-A collection of small emulators i've written
+# Small projects
+A collection of small projects i've written mostly in rust and C++
