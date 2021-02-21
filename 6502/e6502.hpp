@@ -13,7 +13,7 @@ namespace EMU6502 {
 	const uint8_t FlagV = 6;
 	const uint8_t FlagN = 7;
 
-	enum class Opcode : uint8_t {
+	enum class OpCode : uint8_t {
 		// Immediate
 		I_ADC = 0x69,
 		I_AND = 0x29, 
@@ -35,6 +35,11 @@ namespace EMU6502 {
 		uint16_t PC;
 		uint8_t  SP, A, X, Y;
 		std::bitset<8> PS;
+	
+		/* The current instruction (not compatible with the 6502)
+		Instruction Register */
+	  uint16_t Ins;
+
 
 		// Memory (vector seems easier than dealing with a heap array)
 		std::vector<uint8_t> Mem;
