@@ -133,7 +133,7 @@ impl Game {
             },
             _ => ()
         };
-        if cmd_words[0] == "go" {
+        if cmd_words[0] == "gog" {
             self.board[46] = self.board[60];
             self.board[60] = PieceType::None;
         }
