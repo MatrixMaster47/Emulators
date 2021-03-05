@@ -4,6 +4,8 @@ use crossterm::{execute, queue, Result, ExecutableCommand, event,
     event::{read, Event, KeyEvent, KeyCode},
     cursor::{position, MoveTo, Hide},
     terminal::{Clear, ClearType}};
+use regex::Regex;
+use lazy_static::lazy_static;
 
 #[derive(Copy, Clone)]
 pub enum PieceType {
@@ -16,6 +18,10 @@ pub enum PieceType {
     King(bool)
 }
 
+lazy_static! {
+    static ref CMD_REGEX: Regex = Regex::new("(?P<srcX>[a-hA-H])(?P<srcY>[1-8]) to (?P<dstX>[a-hA-H])(?P<dstY>[1-8])").unwrap();
+}
+
 pub struct Game {
     pub board: [PieceType; 64],
     pub cmd: String,
@@ -24,6 +30,7 @@ pub struct Game {
 }
 
 impl Game {
+    /* Just hardcoded */
     pub fn reset_board(&mut self) {
         self.board[0] = PieceType::Rook(false);
         self.board[1] = PieceType::Knight(false);
@@ -57,13 +64,33 @@ impl Game {
 
     pub fn draw_board(&self) -> Result<(u16,u16)> {
         let mut c: bool = false;
+        let pos: (u16, u16) = position()?;
+
+        queue!(stdout(),
+            Print("# A B C D E F G H ")    
+        )?;
 
         for i in 0..64 {
+            /*if i < 8 {
+                queue!(stdout(),
+                    Print(format!("{}", match i {
+                        0 => 'A',
+                        1 => 'B',
+                        2 => 'C',
+                        3 => 'D',
+                        4 => 'E',
+                        5 => 'F',
+                        6 => 'G',
+                        7 => 'H',
+                        _ => panic!("ERROR")
+                    }))
+                )?;
+            }*/
             /* If i is dividable by 8 then we're at the end of a line */
-            if i % 8 == 0 && i != 0 {
+            if i % 8 == 0 {
                 queue!(stdout(), 
                     SetBackgroundColor(Color::Reset),
-                    Print("\n")
+                    Print(format!("\n{} ", 8-(i/8)))
                 )?;
                 /* Invert c so the next cell (first of next line) 
                  * is the same as the current line like
@@ -104,12 +131,13 @@ impl Game {
                         PieceType::Queen(true)   => "Q ".grey(),
                         PieceType::King(true)    => "K ".grey()
                     }
-                }));
+                }))?;
             c = !c;
         }
         queue!(stdout(), SetBackgroundColor(Color::Reset), Print(format!("\n\n> {}", self.cmd)))?;
         stdout().flush()?;
-        Ok(position()?)
+        //Ok(position()?)
+        Ok(pos)
     }
     
     pub fn get_input(&self) -> Result<Option<KeyEvent>> {
@@ -121,27 +149,45 @@ impl Game {
     }
 
     pub fn process(&mut self, e: KeyEvent) {
-        let mut cmd_words: Vec<&str> = [""].to_vec();
-        let mut cmd_copy: String = String::new();
         match e.code {
             KeyCode::Char(c)   => self.cmd.push(c),
             KeyCode::Backspace => drop(self.cmd.pop()),
             KeyCode::Enter     => {
-                cmd_copy = self.cmd.clone();
-                cmd_words = cmd_copy.split_whitespace().collect();
+                if self.cmd == "new" || self.cmd == "reset" {
+                    self.reset_board();
+                }
+
+                let split = match CMD_REGEX.captures(&self.cmd) {
+                    Some(some) => some,
+                    None => {
+                        self.cmd = String::new();
+                        return ()
+                    }   
+                }; 
+                self.board[self.to_index(&split["srcX"], split["srcY"].parse().unwrap())] = PieceType::King(true); 
                 self.cmd = String::new();
             },
             _ => ()
         };
-        if cmd_words[0] == "gog" {
-            self.board[46] = self.board[60];
-            self.board[60] = PieceType::None;
-        }
     }
 
     pub fn clear_board(&self, cursor: (u16, u16)) -> Result<()> {
-        queue!(stdout(), MoveTo(0, cursor.1-9), Clear(ClearType::FromCursorDown))?;
+        queue!(stdout(), MoveTo(cursor.0, cursor.1), Clear(ClearType::FromCursorDown))?;
         stdout().flush()?;
         Ok(())
+    }
+
+    fn to_index(&self, c: &str, n: u8) -> usize {
+        (match c {
+            "a"|"A" => 0,
+            "b"|"B" => 1,
+            "c"|"C" => 2,
+            "d"|"D" => 3,
+            "e"|"E" => 4,
+            "f"|"F" => 5,
+            "g"|"G" => 6,
+            "h"|"H" => 7,
+            _       => 0
+        } + (8-n) * 8) as usize
     }
 }

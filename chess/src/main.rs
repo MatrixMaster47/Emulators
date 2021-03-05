@@ -3,7 +3,7 @@ use std::env;
 mod chess;
 
 fn main() -> Result<(), crossterm::ErrorKind> {
-    let mut clear_pos: (u16, u16) = (0,0);
+    let clear_pos: (u16, u16);
     let mut game = chess::Game {
         turn: false,
         use_unicode: if env::args().collect::<String>().contains("-u") { true } else { false },
@@ -13,10 +13,7 @@ fn main() -> Result<(), crossterm::ErrorKind> {
 
     game.reset_board();
 
-    // Reset (or initialize in this case) the game board
-    //game.Reset();
-    
-    // Draw the chess board before the game actually starts
+    /* Draw the chess board before the game actually starts */
     clear_pos = game.draw_board()?;
 
     loop {
@@ -28,5 +25,5 @@ fn main() -> Result<(), crossterm::ErrorKind> {
         game.clear_board(clear_pos)?;
         game.draw_board()?;
     }
-    Ok(())
+   Ok(())
 }
