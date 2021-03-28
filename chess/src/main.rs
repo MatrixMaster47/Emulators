@@ -3,18 +3,10 @@ use std::env;
 mod chess;
 
 fn main() -> Result<(), crossterm::ErrorKind> {
-    let clear_pos: (u16, u16);
-    let mut game = chess::Game {
-        turn: false,
-        use_unicode: if env::args().collect::<String>().contains("-u") { true } else { false },
-        board: [chess::PieceType::None; 64],
-        cmd: String::new()
-    };
-
-    game.reset_board();
+    let mut game = chess::Game::new(if env::args().collect::<String>().contains("-u") { true } else { false });
 
     /* Draw the chess board before the game actually starts */
-    clear_pos = game.draw_board()?;
+    let clear_pos = game.draw_board()?;
 
     loop {
         match game.get_input() {

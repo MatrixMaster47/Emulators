@@ -1,5 +1,6 @@
 use std::io::{stdout, Write};
-use crossterm::{execute, queue, Result, ExecutableCommand, event, 
+use std::convert::TryInto;
+use crossterm::{execute, queue, Result, 
     style::{Colorize, Color, Print, ResetColor, SetBackgroundColor, SetForegroundColor, PrintStyledContent},
     event::{read, Event, KeyEvent, KeyCode},
     cursor::{position, MoveTo, Hide},
@@ -7,7 +8,7 @@ use crossterm::{execute, queue, Result, ExecutableCommand, event,
 use regex::Regex;
 use lazy_static::lazy_static;
 
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, PartialEq)]
 pub enum PieceType {
     None,
     Pawn(bool),
@@ -18,18 +19,43 @@ pub enum PieceType {
     King(bool)
 }
 
+#[derive(Copy, Clone)]
+#[repr(u8)]
+pub enum HighlightType {
+     None,
+    Inaccessible,
+    Accessible,
+    Movable,
+    Winning
+}
+
 lazy_static! {
     static ref CMD_REGEX: Regex = Regex::new("(?P<srcX>[a-hA-H])(?P<srcY>[1-8]) to (?P<dstX>[a-hA-H])(?P<dstY>[1-8])").unwrap();
 }
 
+
+
 pub struct Game {
-    pub board: [PieceType; 64],
+    pub board: [PieceType; 8*8],
+    pub highlight_board: [HighlightType; 8*8],
     pub cmd: String,
     pub turn: bool,
     pub use_unicode: bool
 }
 
 impl Game {
+    pub fn new(u: bool) -> Game {
+        let mut g = Game {
+            board: [PieceType::None; 64],
+            highlight_board: [HighlightType::None; 64],
+            cmd: String::new(),
+            turn: false,
+            use_unicode: u
+        };
+        g.reset_board();
+        g
+    }
+
     /* Just hardcoded */
     pub fn reset_board(&mut self) {
         self.board[0] = PieceType::Rook(false);
@@ -60,32 +86,20 @@ impl Game {
             self.board[i] = PieceType::Pawn(true);
         }
 
+        self.board[53] = PieceType::King(false);
     }
 
     pub fn draw_board(&self) -> Result<(u16,u16)> {
         let mut c: bool = false;
         let pos: (u16, u16) = position()?;
-
+        
+        /* While this clunky implementation is clunky, it's the simplest and
+         * Probably actually the most performant*/
         queue!(stdout(),
             Print("# A B C D E F G H ")    
         )?;
 
         for i in 0..64 {
-            /*if i < 8 {
-                queue!(stdout(),
-                    Print(format!("{}", match i {
-                        0 => 'A',
-                        1 => 'B',
-                        2 => 'C',
-                        3 => 'D',
-                        4 => 'E',
-                        5 => 'F',
-                        6 => 'G',
-                        7 => 'H',
-                        _ => panic!("ERROR")
-                    }))
-                )?;
-            }*/
             /* If i is dividable by 8 then we're at the end of a line */
             if i % 8 == 0 {
                 queue!(stdout(), 
@@ -99,7 +113,15 @@ impl Game {
                  * ... */
                 c = !c; 
             }
-            queue!(stdout(), SetBackgroundColor(if c { Color::White } else { Color::DarkGrey }),
+
+            queue!(stdout(), 
+                SetBackgroundColor(match self.highlight_board[i] {
+                    HighlightType::None         => if c { Color::DarkGrey }   else { Color::White },
+                    HighlightType::Inaccessible => if c { Color::DarkRed }    else { Color::Red },
+                    HighlightType::Accessible   => if c { Color::DarkYellow } else { Color::Yellow },
+                    HighlightType::Movable      => if c { Color::DarkGreen }  else { Color::Green },
+                    HighlightType::Winning      => if c { Color::DarkCyan }   else { Color::Cyan }
+                }),
                 PrintStyledContent(match self.use_unicode { 
                     true => match self.board[i] {
                         PieceType::None          => "  ".white(),
@@ -136,7 +158,6 @@ impl Game {
         }
         queue!(stdout(), SetBackgroundColor(Color::Reset), Print(format!("\n\n> {}", self.cmd)))?;
         stdout().flush()?;
-        //Ok(position()?)
         Ok(pos)
     }
     
@@ -164,17 +185,82 @@ impl Game {
                         return ()
                     }   
                 }; 
-                self.board[self.to_index(&split["srcX"], split["srcY"].parse().unwrap())] = PieceType::King(true); 
+                let srci: usize = self.to_index(match split.name("srcX") { Some(some) => some.as_str(), None => {
+                    self.cmd = String::new();
+                    return ()
+                }}, match split.name("dstX") { Some(some) => some.as_str().parse().unwrap(), None => {
+                    self.cmd = String::new();
+                    return ()
+                }});
+                 
+                if(self.board[self.to_index(&split["srcX"], split["srcY"].parse().unwrap())] == 
                 self.cmd = String::new();
             },
             _ => ()
         };
+        let rg: Regex = Regex::new("(?P<srcX>[a-hA-H])(?P<srcY>[1-8])( to )?").unwrap();
+        let capt = match rg.captures(&self.cmd) {
+            None => {
+                self.highlight_board = [HighlightType::None; 64];
+                return
+            },
+            Some(some) => some
+        };
+       self.highlight(self.to_index(capt.name("srcX").unwrap().as_str(), capt.name("srcY").unwrap().as_str().parse().unwrap())); 
     }
 
     pub fn clear_board(&self, cursor: (u16, u16)) -> Result<()> {
         queue!(stdout(), MoveTo(cursor.0, cursor.1), Clear(ClearType::FromCursorDown))?;
-        stdout().flush()?;
         Ok(())
+    }
+    
+    fn check_route(&self, src: usize, dst: Option<usize>) -> (bool, bool, bool) {
+        match dst {
+            None => {
+                if self.board[src] == PieceType::None             
+                || self.board[src] == PieceType::Pawn(!self.turn) 
+                || self.board[src] == PieceType::Knight(!self.turn)
+                || self.board[src] == PieceType::Rook(!self.turn) 
+                || self.board[src] == PieceType::Bishop(!self.turn)
+                || self.board[src] == PieceType::Queen(!self.turn)
+                || self.board[src] == PieceType::King(!self.turn) {             
+                    return (false, false, false)
+                }
+                return (true, false, false)
+            },
+            Some(s) => {
+                let result: (bool, bool, bool) = (false, false, false);
+                if self.board[src] == PieceType::None             
+                || self.board[src] == PieceType::Pawn(!self.turn) 
+                || self.board[src] == PieceType::Knight(!self.turn)
+                || self.board[src] == PieceType::Rook(!self.turn) 
+                || self.board[src] == PieceType::Bishop(!self.turn)
+                || self.board[src] == PieceType::Queen(!self.turn)
+                || self.board[src] == PieceType::King(!self.turn) {             
+                    return result
+                } else {
+                    result.0 = true;
+
+                    //TODO
+                }
+                
+                return (false, false, false)
+            }
+        }; 
+    }
+
+    fn highlight(&mut self, i: usize) {
+        if self.board[i] == PieceType::None             
+        || self.board[i] == PieceType::Pawn(!self.turn) 
+        || self.board[i] == PieceType::Knight(!self.turn)
+        || self.board[i] == PieceType::Rook(!self.turn) 
+        || self.board[i] == PieceType::Bishop(!self.turn)
+        || self.board[i] == PieceType::Queen(!self.turn)
+        || self.board[i] == PieceType::King(!self.turn) {
+            self.highlight_board[i] = HighlightType::Inaccessible;
+        } else {
+            self.highlight_board[i] = HighlightType::Accessible;
+        }
     }
 
     fn to_index(&self, c: &str, n: u8) -> usize {
@@ -189,5 +275,19 @@ impl Game {
             "h"|"H" => 7,
             _       => 0
         } + (8-n) * 8) as usize
+    }
+
+    fn from_index(&self, i: usize) -> (char, u8) {
+        (match i-i/8*8 {
+            0 => 'A',
+            1 => 'B',
+            2 => 'C',
+            3 => 'D',
+            4 => 'E',
+            5 => 'F',
+            6 => 'G',
+            7 => 'H',
+            _ => panic!("index is too large") 
+        }, (8-i / 8).try_into().expect("index is too large!"))
     }
 }
